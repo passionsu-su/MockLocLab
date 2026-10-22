@@ -76,7 +76,7 @@ class MainActivity : Activity() {
     private fun field(hintText: String, value: String) = EditText(this).apply {
         hint = hintText
         setText(value)
-        singleLine = true
+        setSingleLine(true)
         textSize = 16f
     }
 
