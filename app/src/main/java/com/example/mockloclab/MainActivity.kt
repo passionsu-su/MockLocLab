@@ -11,8 +11,6 @@ import android.provider.Settings
 import android.view.View
 import android.view.ViewGroup
 import android.widget.*
-import androidx.core.app.ActivityCompat
-import androidx.core.content.ContextCompat
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -117,7 +115,7 @@ class MainActivity : Activity() {
             .putExtra("lat", p.first).putExtra("lon", p.second)
             .putExtra("label", label.text.toString().ifBlank { "测试点" })
         try {
-            ContextCompat.startForegroundService(this, i)
+            startForegroundService(i)
             status.text = "已请求启动。若提示模拟定位权限错误，请确认开发者选项已选择 MockLoc Lab。"
         } catch (e: Exception) {
             status.text = "启动失败：${e.message ?: e.javaClass.simpleName}"
@@ -125,12 +123,12 @@ class MainActivity : Activity() {
     }
 
     private fun hasLocationPermission() =
-        ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
 
     private fun requestRuntimePermissions() {
         val perms = mutableListOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
         if (Build.VERSION.SDK_INT >= 33) perms.add(Manifest.permission.POST_NOTIFICATIONS)
-        ActivityCompat.requestPermissions(this, perms.toTypedArray(), requestCode)
+        requestPermissions(perms.toTypedArray(), requestCode)
     }
 
     private fun savePlace() {
