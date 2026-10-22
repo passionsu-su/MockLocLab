@@ -53,6 +53,7 @@ class MainActivity : Activity() {
             stopService(Intent(this, MockLocationService::class.java))
             status.text = "已发送停止请求。"
         })
+        root.addView(button("验证当前系统定位") { verifyMockLocation() })
         root.addView(button("打开开发者选项设置") {
             startActivity(Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS))
         })
@@ -119,6 +120,36 @@ class MainActivity : Activity() {
             status.text = "已请求启动。若提示模拟定位权限错误，请确认开发者选项已选择 MockLoc Lab。"
         } catch (e: Exception) {
             status.text = "启动失败：${e.message ?: e.javaClass.simpleName}"
+        }
+    }
+
+
+    @Suppress("DEPRECATION")
+    private fun verifyMockLocation() {
+        if (!hasLocationPermission()) {
+            status.text = "尚未授予精确定位权限，请先授权。"
+            requestRuntimePermissions()
+            return
+        }
+        val manager = getSystemService(LOCATION_SERVICE) as android.location.LocationManager
+        val found = mutableListOf<String>()
+        for (provider in listOf(android.location.LocationManager.GPS_PROVIDER, android.location.LocationManager.NETWORK_PROVIDER)) {
+            try {
+                val location = manager.getLastKnownLocation(provider)
+                if (location != null) {
+                    found.add("$provider: ${"%.6f".format(location.latitude)}, ${"%.6f".format(location.longitude)}")
+                }
+            } catch (_: SecurityException) {
+                status.text = "系统拒绝读取定位。请确认已授予精确定位权限，并在开发者选项中选择 MockLoc Lab。"
+                return
+            } catch (_: Exception) {
+                // Provider may not be available on every device.
+            }
+        }
+        status.text = if (found.isEmpty()) {
+            "暂未读取到定位结果。请确认开发者选项已选择 MockLoc Lab，启动模拟定位后等待数秒再验证。"
+        } else {
+            "系统当前可读取的定位：\n" + found.joinToString("\n")
         }
     }
 
