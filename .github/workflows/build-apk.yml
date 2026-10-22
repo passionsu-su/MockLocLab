@@ -13,9 +13,14 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: mockloclab-android-apk
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -32,7 +37,7 @@ jobs:
           unzip -q gradle-8.9-bin.zip
           echo "$GITHUB_WORKSPACE/gradle-8.9/bin" >> "$GITHUB_PATH"
       - name: Build debug APK
-        run: gradle assembleDebug
+        run: gradle --no-daemon --stacktrace assembleDebug
       - uses: actions/upload-artifact@v4
         with:
           name: MockLocLab-debug-apk
