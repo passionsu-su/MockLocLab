@@ -19,6 +19,7 @@ class MainActivity : Activity() {
     private lateinit var lon: EditText
     private lateinit var label: EditText
     private lateinit var status: TextView
+    private lateinit var gcj: CheckBox
     private lateinit var savedList: LinearLayout
     private val prefs by lazy { getSharedPreferences("places", MODE_PRIVATE) }
     private val requestCode = 100
@@ -46,6 +47,12 @@ class MainActivity : Activity() {
         root.addView(label)
         root.addView(lat)
         root.addView(lon)
+        gcj = CheckBox(this).apply {
+            text = "坐标来自高德/腾讯地图（GCJ-02，自动转为 GPS 坐标）"
+            isChecked = prefs.getBoolean("gcj", true)
+            setOnCheckedChangeListener { _, c -> prefs.edit().putBoolean("gcj", c).apply() }
+        }
+        root.addView(gcj)
         root.addView(button("打开高德地图查看此坐标") { openAmap() })
         root.addView(button("保存常用位置") { savePlace() })
         root.addView(button("开始模拟定位") { startMock() })
@@ -95,8 +102,9 @@ class MainActivity : Activity() {
     }
 
     private fun openAmap() {
-        val p = values() ?: return
+        val p0 = values() ?: return
         val name = label.text.toString().ifBlank { "测试点" }
+        val p = if (gcj.isChecked) p0 else CoordUtil.wgsToGcj(p0.first, p0.second)
         val uri = Uri.parse("androidamap://viewMap?sourceApplication=MockLocLab&lat=${p.first}&lon=${p.second}&poiname=${Uri.encode(name)}&dev=0")
         try {
             startActivity(Intent(Intent.ACTION_VIEW, uri).addCategory(Intent.CATEGORY_DEFAULT))
@@ -105,8 +113,23 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun isMockAppSelected(): Boolean = try {
+        val ops = getSystemService(APP_OPS_SERVICE) as android.app.AppOpsManager
+        @Suppress("DEPRECATION")
+        val mode = if (Build.VERSION.SDK_INT >= 29)
+            ops.unsafeCheckOpNoThrow(android.app.AppOpsManager.OPSTR_MOCK_LOCATION, android.os.Process.myUid(), packageName)
+        else ops.checkOpNoThrow(android.app.AppOpsManager.OPSTR_MOCK_LOCATION, android.os.Process.myUid(), packageName)
+        mode == android.app.AppOpsManager.MODE_ALLOWED
+    } catch (_: Exception) { true }
+
     private fun startMock() {
-        val p = values() ?: return
+        val raw = values() ?: return
+        if (!isMockAppSelected()) {
+            status.text = "尚未把 MockLoc Lab 设为模拟位置信息应用。请在开发者选项 →“选择模拟位置信息应用”中选择它，再回来点开始。"
+            try { startActivity(Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS)) } catch (_: Exception) {}
+            return
+        }
+        val p = if (gcj.isChecked) CoordUtil.gcjToWgs(raw.first, raw.second) else raw
         if (!hasLocationPermission()) {
             requestRuntimePermissions()
             status.text = "请先授予定位权限，再点击开始。"
@@ -115,9 +138,14 @@ class MainActivity : Activity() {
         val i = Intent(this, MockLocationService::class.java)
             .putExtra("lat", p.first).putExtra("lon", p.second)
             .putExtra("label", label.text.toString().ifBlank { "测试点" })
+        getSharedPreferences("state", MODE_PRIVATE).edit().putString("last_error", "").apply()
         try {
             startForegroundService(i)
-            status.text = "已请求启动。若提示模拟定位权限错误，请确认开发者选项已选择 MockLoc Lab。"
+            status.text = "模拟定位已启动：GPS 坐标 ${"%.6f".format(p.first)}, ${"%.6f".format(p.second)}。几秒后可点“验证当前系统定位”。"
+            status.postDelayed({
+                val err = getSharedPreferences("state", MODE_PRIVATE).getString("last_error", "") ?: ""
+                if (err.isNotBlank()) status.text = "模拟定位未能启动：$err"
+            }, 2500)
         } catch (e: Exception) {
             status.text = "启动失败：${e.message ?: e.javaClass.simpleName}"
         }
@@ -133,7 +161,9 @@ class MainActivity : Activity() {
         }
         val manager = getSystemService(LOCATION_SERVICE) as android.location.LocationManager
         val found = mutableListOf<String>()
-        for (provider in listOf(android.location.LocationManager.GPS_PROVIDER, android.location.LocationManager.NETWORK_PROVIDER)) {
+        val ps = mutableListOf(android.location.LocationManager.GPS_PROVIDER, android.location.LocationManager.NETWORK_PROVIDER)
+        if (Build.VERSION.SDK_INT >= 31) ps.add(android.location.LocationManager.FUSED_PROVIDER)
+        for (provider in ps) {
             try {
                 val location = manager.getLastKnownLocation(provider)
                 if (location != null) {
