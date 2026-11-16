@@ -53,6 +53,8 @@ class MainActivity : Activity() {
             setOnCheckedChangeListener { _, c -> prefs.edit().putBoolean("gcj", c).apply() }
         }
         root.addView(gcj)
+        root.addView(button("🗺 地图选点 / 搜索地名") { openPicker() })
+        root.addView(button("高德搜索 Key（可选）") { editAmapKey() })
         root.addView(button("打开高德地图查看此坐标") { openAmap() })
         root.addView(button("保存常用位置") { savePlace() })
         root.addView(button("开始模拟定位") { startMock() })
@@ -99,6 +101,51 @@ class MainActivity : Activity() {
             return null
         }
         return a to b
+    }
+
+    private val pickCode = 200
+
+    private fun openPicker() {
+        val a = lat.text.toString().trim().toDoubleOrNull() ?: 31.2304
+        val b = lon.text.toString().trim().toDoubleOrNull() ?: 121.4737
+        val p = if (gcj.isChecked) a to b else CoordUtil.wgsToGcj(a, b)
+        startActivityForResult(Intent(this, MapPickerActivity::class.java)
+            .putExtra("lat", p.first).putExtra("lon", p.second)
+            .putExtra("name", label.text.toString()), pickCode)
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(req: Int, result: Int, data: Intent?) {
+        super.onActivityResult(req, result, data)
+        if (req != pickCode || result != RESULT_OK || data == null) return
+        val a = data.getDoubleExtra("lat", Double.NaN)
+        val b = data.getDoubleExtra("lon", Double.NaN)
+        if (a.isNaN() || b.isNaN()) return
+        gcj.isChecked = true  // 地图页坐标为高德 GCJ-02
+        lat.setText(String.format(java.util.Locale.US, "%.6f", a))
+        lon.setText(String.format(java.util.Locale.US, "%.6f", b))
+        val name = data.getStringExtra("name").orEmpty()
+        if (name.isNotBlank()) label.setText(name)
+        status.text = "已从地图选点填入坐标。"
+        if (data.getBooleanExtra("start", false)) startMock()
+    }
+
+    private fun editAmapKey() {
+        val input = EditText(this).apply {
+            hint = "高德开放平台 Web 服务 Key"
+            setText(prefs.getString("amap_key", ""))
+            setSingleLine(true)
+        }
+        android.app.AlertDialog.Builder(this)
+            .setTitle("高德搜索 Key（可选）")
+            .setMessage("留空则用 OpenStreetMap 免费搜索。填入高德 Web 服务 Key 后，国内地名、小区、门店搜索更准。")
+            .setView(input)
+            .setPositiveButton("保存") { _, _ ->
+                prefs.edit().putString("amap_key", input.text.toString().trim()).apply()
+                status.text = if (input.text.isBlank()) "已清除高德 Key，改用 OpenStreetMap 搜索。" else "已保存高德 Key。"
+            }
+            .setNegativeButton("取消", null)
+            .show()
     }
 
     private fun openAmap() {

@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<link rel="stylesheet" href="leaflet/leaflet.css">
+<style>
+  html, body { margin: 0; height: 100%; font-family: sans-serif; }
+  #map { position: absolute; top: 56px; bottom: 112px; left: 0; right: 0; }
+  #bar { position: absolute; top: 0; left: 0; right: 0; height: 56px; display: flex; gap: 6px; padding: 8px; box-sizing: border-box; background: #fff; z-index: 1000; box-shadow: 0 1px 4px rgba(0,0,0,.2); }
+  #q { flex: 1; font-size: 16px; padding: 0 10px; border: 1px solid #bbb; border-radius: 8px; }
+  #go { font-size: 16px; padding: 0 14px; border: 0; border-radius: 8px; background: #1a73e8; color: #fff; }
+  #results { position: absolute; top: 56px; left: 0; right: 0; max-height: 55%; overflow-y: auto; background: #fff; z-index: 1001; display: none; box-shadow: 0 2px 6px rgba(0,0,0,.25); }
+  .r { padding: 10px 12px; border-bottom: 1px solid #eee; }
+  .r b { display: block; font-size: 15px; }
+  .r span { font-size: 12px; color: #666; }
+  #panel { position: absolute; bottom: 0; left: 0; right: 0; height: 112px; background: #fff; z-index: 1000; padding: 8px; box-sizing: border-box; box-shadow: 0 -1px 4px rgba(0,0,0,.2); }
+  #info { font-size: 13px; color: #333; height: 40px; overflow: hidden; }
+  #btns { display: flex; gap: 8px; margin-top: 6px; }
+  #btns button { flex: 1; height: 48px; font-size: 15px; border: 0; border-radius: 8px; }
+  #use { background: #e8eaed; }
+  #start { background: #188038; color: #fff; }
+  #hint { position: absolute; top: 64px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,.65); color: #fff; font-size: 12px; padding: 4px 10px; border-radius: 12px; z-index: 999; }
+</style>
+</head>
+<body>
+<div id="bar">
+  <input id="q" type="search" placeholder="搜索地名、地址或 POI" enterkeyhint="search">
+  <button id="go">搜索</button>
+</div>
+<div id="results"></div>
+<div id="map"></div>
+<div id="hint">点地图选点，或长按拖动红针</div>
+<div id="panel">
+  <div id="info">尚未选点</div>
+  <div id="btns">
+    <button id="use">填入坐标</button>
+    <button id="start">用此位置开始模拟</button>
+  </div>
+</div>
+<script src="leaflet/leaflet.js"></script>
+<script>
+  // 高德瓦片使用 GCJ-02，本页所有坐标都是 GCJ-02，交给 App 后再转 WGS-84。
+  var init = JSON.parse(Android.initial());
+  var map = L.map('map', { zoomControl: true, attributionControl: true }).setView([init.lat, init.lon], init.zoom || 15);
+  L.tileLayer('https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}', {
+    subdomains: '1234', maxZoom: 18, attribution: '© 高德地图'
+  }).addTo(map);
+  var marker = L.marker([init.lat, init.lon], { draggable: true }).addTo(map);
+  var picked = { lat: init.lat, lon: init.lon, name: init.name || '' };
+
+  function show() {
+    document.getElementById('info').innerHTML =
+      (picked.name ? '<b>' + escapeHtml(picked.name) + '</b><br>' : '') +
+      '纬度 ' + picked.lat.toFixed(6) + '，经度 ' + picked.lon.toFixed(6) + '（高德坐标）';
+  }
+  function escapeHtml(s) { return String(s).replace(/[&<>"]/g, function (c) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+  function setPoint(lat, lon, name, pan) {
+    picked = { lat: lat, lon: lon, name: name || '' };
+    marker.setLatLng([lat, lon]);
+    if (pan) map.setView([lat, lon], Math.max(map.getZoom(), 16));
+    show();
+  }
+  map.on('click', function (e) { setPoint(e.latlng.lat, e.latlng.lng, '', false); });
+  marker.on('dragend', function () { var p = marker.getLatLng(); setPoint(p.lat, p.lng, '', false); });
+  show();
+
+  var results = document.getElementById('results');
+  function doSearch() {
+    var q = document.getElementById('q').value.trim();
+    if (!q) return;
+    results.style.display = 'block';
+    results.innerHTML = '<div class="r">搜索中…</div>';
+    var c = map.getCenter();
+    Android.search(q, c.lat, c.lng);
+  }
+  // App 搜索完成后回调
+  window.onSearch = function (json) {
+    var list;
+    try { list = JSON.parse(json); } catch (e) { list = { error: '解析失败' }; }
+    if (list.error) { results.innerHTML = '<div class="r">' + escapeHtml(list.error) + '</div>'; return; }
+    if (!list.length) { results.innerHTML = '<div class="r">没有找到结果，换个关键词试试</div>'; return; }
+    results.innerHTML = '';
+    list.forEach(function (it) {
+      var d = document.createElement('div');
+      d.className = 'r';
+      d.innerHTML = '<b>' + escapeHtml(it.name) + '</b><span>' + escapeHtml(it.addr || '') + '</span>';
+      d.onclick = function () { results.style.display = 'none'; setPoint(it.lat, it.lon, it.name, true); };
+      results.appendChild(d);
+    });
+  };
+  document.getElementById('go').onclick = doSearch;
+  document.getElementById('q').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); doSearch(); } });
+  document.getElementById('q').addEventListener('focus', function () { if (results.innerHTML) results.style.display = 'block'; });
+  map.on('movestart', function () { results.style.display = 'none'; document.getElementById('hint').style.display = 'none'; });
+  document.getElementById('use').onclick = function () { Android.confirm(picked.lat, picked.lon, picked.name, false); };
+  document.getElementById('start').onclick = function () { Android.confirm(picked.lat, picked.lon, picked.name, true); };
+</script>
+</body>
+</html>
